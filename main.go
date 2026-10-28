@@ -538,7 +538,15 @@ func setAttachmentExtensions(current string, extensions []string) (string, error
 }
 
 func (store *mysqlStore) SetOwnerPassword(ctx context.Context, email, passwordHash string) error {
-	result, err := store.db.ExecContext(ctx, "UPDATE `user` SET pass = ? WHERE e_mail = ? AND is_admin = 1", passwordHash, email)
+	result, err := store.db.ExecContext(ctx, "UPDATE `user` AS target_user\n"+
+		`SET pass = ?
+		WHERE target_user.e_mail = ?
+		AND EXISTS (
+			SELECT 1
+			FROM user_role_rel AS owner_role
+			WHERE owner_role.user_id = target_user.id
+			AND owner_role.role_id = 2
+		)`, passwordHash, email)
 	if err != nil {
 		return err
 	}
