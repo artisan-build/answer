@@ -69,7 +69,7 @@ jobs:
           AWS_URL: https://cdn.example.invalid/answer/
           PORT: "3000"
           APP_URL: http://127.0.0.1:3000
-          SCALPELS_OWNER_NAME: CI Owner
+          SCALPELS_OWNER_NAME: CI Owner, Wrapper
           SCALPELS_OWNER_EMAIL: owner@example.invalid
         run: |
           ./app > "$RUNNER_TEMP/answer.log" 2>&1 &

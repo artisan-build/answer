@@ -18,7 +18,7 @@ The Redis plugin receives the private Cloud URL with its TLS scheme, port, and d
 
 ## Owner password
 
-The initial owner is created from the installing Scalpels account. Its bootstrap password is generated inside the wrapper and is not retained or printed.
+The initial owner is created from the installing Scalpels account. The account name is adapted to Answer's 2–30 character username rules while the email is preserved. Its bootstrap password is generated inside the wrapper and is not retained or printed.
 
 Scalpels reveals a usable password by running the fixed command below inside the installed application:
 

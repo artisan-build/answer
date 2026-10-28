@@ -115,6 +115,7 @@ func loadLauncherConfig(root string, lookupEnv func(string) (string, bool)) (lau
 	if err != nil {
 		return launcherConfig{}, err
 	}
+	ownerName = answerOwnerName(ownerName, ownerEmail)
 	appURL, err := requiredEnvironment(lookupEnv, "APP_URL")
 	if err != nil {
 		return launcherConfig{}, err
@@ -164,6 +165,51 @@ func loadLauncherConfig(root string, lookupEnv func(string) (string, bool)) (lau
 		},
 		ownerEmail: ownerEmail,
 	}, nil
+}
+
+func answerOwnerName(name, email string) string {
+	if sanitized := sanitizeAnswerOwnerName(name); len(sanitized) >= 2 {
+		return sanitized
+	}
+
+	localPart, _, _ := strings.Cut(email, "@")
+	if sanitized := sanitizeAnswerOwnerName(localPart); len(sanitized) >= 2 {
+		return sanitized
+	}
+
+	return "Owner"
+}
+
+func sanitizeAnswerOwnerName(value string) string {
+	const maxLength = 30
+	const separators = " .-_"
+
+	var sanitized strings.Builder
+	lastWasSeparator := true
+	for _, character := range value {
+		isLetter := character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z'
+		isDigit := character >= '0' && character <= '9'
+		isSeparator := character < 128 && strings.ContainsRune(separators, character)
+		if !isLetter && !isDigit && !isSeparator {
+			character = ' '
+			isSeparator = true
+		}
+		if isSeparator {
+			if lastWasSeparator {
+				continue
+			}
+			lastWasSeparator = true
+		} else {
+			lastWasSeparator = false
+		}
+		sanitized.WriteRune(character)
+	}
+
+	result := sanitized.String()
+	if len(result) > maxLength {
+		result = result[:maxLength]
+	}
+	return strings.TrimRight(result, separators)
 }
 
 func loadRedisSettings(lookupEnv func(string) (string, bool)) (redisPluginSettings, error) {

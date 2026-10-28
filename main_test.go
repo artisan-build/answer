@@ -7,6 +7,7 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -85,6 +86,46 @@ func TestLoadLauncherConfigMapsCloudResourcesAndOwner(t *testing.T) {
 	database := got.answerConfig["data"].(map[string]any)["database"].(map[string]any)
 	if database["connection"] != "answer:p@ss@tcp(mysql.internal:3306)/answer_db?parseTime=true" {
 		t.Fatalf("database connection = %q", database["connection"])
+	}
+}
+
+func TestLoadLauncherConfigDerivesAnswerSafeOwnerName(t *testing.T) {
+	tests := []struct {
+		name       string
+		ownerName  string
+		ownerEmail string
+		want       string
+	}{
+		{name: "already valid", ownerName: "Example Owner", ownerEmail: "owner@example.invalid", want: "Example Owner"},
+		{name: "accented", ownerName: "José Álvarez", ownerEmail: "owner@example.invalid", want: "Jos lvarez"},
+		{name: "apostrophe and punctuation", ownerName: "Siobhán O'Brien, Jr.", ownerEmail: "owner@example.invalid", want: "Siobh n O Brien Jr"},
+		{name: "one character uses email local part", ownerName: "E", ownerEmail: "owner.local@example.invalid", want: "owner.local"},
+		{name: "all invalid uses generic fallback", ownerName: "李雷💥", ownerEmail: "☃@example.invalid", want: "Owner"},
+		{name: "over thirty is clamped", ownerName: "Zhang Wei Scalpels Operations Lead", ownerEmail: "owner@example.invalid", want: "Zhang Wei Scalpels Operations"},
+	}
+	answerNamePattern := regexp.MustCompile(`^[\w.\- ]{2,30}$`)
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			values := validEnvironment()
+			values["SCALPELS_OWNER_NAME"] = test.ownerName
+			values["SCALPELS_OWNER_EMAIL"] = test.ownerEmail
+
+			config, err := loadLauncherConfig("/srv/app", mapLookup(values))
+			if err != nil {
+				t.Fatalf("loadLauncherConfig() error = %v", err)
+			}
+			got := config.installEnvironment["ADMIN_NAME"]
+			if got != test.want {
+				t.Fatalf("ADMIN_NAME = %q, want %q", got, test.want)
+			}
+			if !answerNamePattern.MatchString(got) {
+				t.Fatalf("ADMIN_NAME %q does not match Answer's username rule", got)
+			}
+			if config.installEnvironment["ADMIN_EMAIL"] != test.ownerEmail {
+				t.Fatalf("ADMIN_EMAIL = %q, want %q", config.installEnvironment["ADMIN_EMAIL"], test.ownerEmail)
+			}
+		})
 	}
 }
 
