@@ -1,0 +1,60 @@
+diff --git a/cache-redis/redis.go b/cache-redis/redis.go
+index f62b048..e698c5a 100644
+--- a/cache-redis/redis.go
++++ b/cache-redis/redis.go
+@@ -25,6 +25,7 @@ import (
+ 	_ "embed"
+ 	"encoding/json"
+ 	"fmt"
++	"strings"
+ 	"time"
+ 
+ 	"github.com/apache/answer-plugins/cache-redis/i18n"
+@@ -183,10 +184,16 @@ func (c *Cache) ConfigReceiver(config []byte) error {
+ 	_ = json.Unmarshal(config, conf)
+ 	c.Config = conf
+ 
+-	c.RedisClient = redis.NewClient(&redis.Options{
+-		Addr:     conf.Endpoint,
+-		Username: conf.Username,
+-		Password: conf.Password,
+-	})
++	endpoint := conf.Endpoint
++	if !strings.Contains(endpoint, "://") {
++		endpoint = "redis://" + endpoint
++	}
++	options, err := redis.ParseURL(endpoint)
++	if err != nil {
++		return err
++	}
++	options.Username = conf.Username
++	options.Password = conf.Password
++	c.RedisClient = redis.NewClient(options)
+ 	return nil
+ }
+diff --git a/storage-s3/s3_client.go b/storage-s3/s3_client.go
+index 07a372f..bc63da9 100644
+--- a/storage-s3/s3_client.go
++++ b/storage-s3/s3_client.go
+@@ -22,8 +22,8 @@ package s3
+ import (
+ 	"fmt"
+ 	"io"
++	"mime"
+ 	"os"
+-	"strings"
+ 
+ 	"github.com/aws/aws-sdk-go/aws"
+ 	"github.com/aws/aws-sdk-go/aws/credentials"
+@@ -55,7 +55,10 @@ func (s *Client) PutObject(key, ext string, file io.ReadSeeker) (err error) {
+ 	if err != nil {
+ 		return fmt.Errorf("failed to create session, %s", err.Error())
+ 	}
+-	contentType := fmt.Sprintf("image/%s", strings.TrimPrefix(ext, "."))
++	contentType := mime.TypeByExtension(ext)
++	if contentType == "" {
++		contentType = "application/octet-stream"
++	}
+ 	_, err = s3.New(newSession).PutObject(&s3.PutObjectInput{
+ 		ACL:         getACLConfig(),
+ 		Body:        file,

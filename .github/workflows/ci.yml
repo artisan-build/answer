@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Hard gate
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: answer
+          MYSQL_USER: answer
+          MYSQL_PASSWORD: answer-ci-password
+          MYSQL_ROOT_PASSWORD: root-ci-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping --host=127.0.0.1 --user=root --password=root-ci-password"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Syntax and format
+        run: |
+          bash -n build.sh
+          test -z "$(gofmt -l .)"
+
+      - name: Static analysis and unit tests
+        run: |
+          go vet ./...
+          staticcheck ./...
+          go test ./...
+
+      - name: Build Answer
+        run: ./build.sh
+
+      - name: Boot against MySQL 8.4
+        env:
+          DATABASE_URL: mysql://answer:answer-ci-password@127.0.0.1:3306/answer
+          REDIS_URL: redis://127.0.0.1:6379/3
+          AWS_BUCKET: answer-ci-bucket
+          AWS_ENDPOINT_URL: https://s3.example.invalid
+          AWS_ACCESS_KEY_ID: fabricated-access-key
+          AWS_SECRET_ACCESS_KEY: fabricated-secret-key
+          AWS_URL: https://cdn.example.invalid/answer/
+          PORT: "3000"
+          APP_URL: http://127.0.0.1:3000
+          SCALPELS_OWNER_NAME: CI Owner, Wrapper
+          SCALPELS_OWNER_EMAIL: owner@example.invalid
+        run: |
+          ./app > "$RUNNER_TEMP/answer.log" 2>&1 &
+          answer_pid=$!
+          trap 'kill "$answer_pid" 2>/dev/null || true' EXIT
+          answer_ready=false
+          for attempt in $(seq 1 60); do
+            if curl --fail --silent --show-error http://127.0.0.1:3000/ >/dev/null; then
+              answer_ready=true
+              break
+            fi
+            if ! kill -0 "$answer_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/answer.log"
+              exit 1
+            fi
+            sleep 2
+          done
+          if [[ "$answer_ready" != true ]]; then
+            cat "$RUNNER_TEMP/answer.log"
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          import re
+          import subprocess
+          import sys
+
+          result = subprocess.run(
+              ["./app", "owner-password"],
+              stdout=subprocess.PIPE,
+              stderr=subprocess.PIPE,
+              check=False,
+          )
+          if result.returncode != 0:
+              print("owner-password failed against the initialized Answer database", file=sys.stderr)
+              raise SystemExit(1)
+          if re.fullmatch(rb"SCALPELS_OWNER_PASSWORD=[A-Za-z0-9_-]{8,32}\n", result.stdout) is None:
+              print("owner-password did not emit exactly one bounded password line", file=sys.stderr)
+              raise SystemExit(1)
+          PY

@@ -1,0 +1,6 @@
+/app
+.env
+/answer
+/.build/
+/data/
+/.amp/
